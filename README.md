@@ -21,4 +21,5 @@ out folder contains all the output that is generated from the source codes.
 
 Claims severity is generated from a gamma severity distribution with mean 874.4 and variance 76596.
 Claims frequency is generated from a Poisson frequency with mean of 4.258.
+
 © 2023 Edmund Liman All Rights Reserved
