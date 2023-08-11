@@ -1,0 +1,243 @@
+# Setting up the workspace
+set.seed(1)
+setwd("C:\\Users\\edmun\\Documents\\GitHub Repositories\\GIM-ACTL30007")
+library("readxl")
+library("writexl")
+library("actuar")
+library("fitdistrplus")
+library("extRemes")
+library("evir")
+raw_data <- read_excel("src\\past_claims_data.xlsx")
+
+sum(is.na(raw_data)) # Check how many policy id have zero claim
+sum(raw_data$claim[claim = 0]) # Check claims of size 0
+cleaned_data <- raw_data
+cleaned_data$claim[is.na(cleaned_data$claim)] <- 0
+write_xlsx(data.frame(raw_data, cleaned_data),"C:\\Users\\edmun\\Documents\\GitHub Repositories\\GIM-ACTL30007\\out\\comparison_data.xlsx")
+attach(cleaned_data)
+
+# There are 593 policies with no claim. 
+# There are no claims of size 0.
+
+plotdist(claim[claim>0], hist = TRUE, demp = TRUE)
+min(claim[claim > 0])
+max(claim[claim > 0])
+format(actuar::emm(claim[claim>0], order = 1:3), scientific = FALSE)
+sd(claim[claim>0])/mean(claim[claim>0])
+
+# Data looks nice. Do not need to perform any transformations.
+
+descdist(claim[claim>0], boot = 1000)
+
+# We will check Gamma, Lognormal and Weibull
+
+claim.nz.lif <- cumsum(sort(claim[claim>0]))/sum(claim[claim>0])
+plot(1:length(claim[claim>0])/length(claim[claim>0]), claim.nz.lif,
+     xlab = "number of claims (in 100%)", ylab = "empirical loss size index function")
+abline(h = 0.2, v = 0.8)
+
+# Not heavy-tailed distribution. 
+# 80% of claims explains about 70% of loss.
+
+mef <- function(x, u) {
+  mefvector <- c()
+  for (i in u) {
+    mefvector <- c(mefvector, sum(pmax(sort(x) - i, 0))/length(x[x >
+                                                                   i]))
+  }
+  return(mefvector)
+}
+
+mef(claim, c(0, 100, 1000, 2000, 4000, 4200, 4300))
+length(claim[claim>4000])
+length(claim[claim>4200])
+mrlplot(claim)
+
+# The mean excess function tells us the average added value loss Y would take above a threshold. Decreasing mean excess function indicates a light-tailed distribution.
+# One exception in my data is a high-values claim at the tail which leads to an increase in mean excess function. However, there are only 5 claims above 4000 and 1 claim above 4200 out of 25041 claims so it can be an outlier or a very rare event.
+# Indicates that log-normal would not be a good fit as it is a heavy-tailed distribution. Weibull Shape parameter (tao in lectures) would not be between 0 and 1 or else it will be heavy-tailed. Gamma is light-tailed
+
+emplot(claim[claim  > 0], alog = "xy", labels = TRUE)
+
+#The log-log is concave which supports that distribution is not heavy-tailed. 1-F(x) rapidly diminishes to 0 at the tail.
+
+# Fitting the data using method of moments.
+
+fit.gamma.mme <- fitdist(claim[claim > 0], "gamma", method = "mme", order = 1:2)
+fit.gamma.mme$estimate
+fit.gamma.mme$loglik
+
+fit.lnorm.mme <- fitdist(claim[claim > 0], "lnorm", method = "mme", order = 1:2)
+fit.lnorm.mme$estimate
+fit.lnorm.mme$loglik
+
+memp <- function(x, order) mean(x^order)
+fit.weibull.mme <- fitdist(claim[claim > 0], "weibull", method = "mme", memp = memp, order = 1:2)
+fit.weibull.mme$estimate
+fit.weibull.mme$loglik
+
+plot.legend <- c("gamma MME", "lnorm MME", "weibull MME")
+fitdistrplus::denscomp(list(fit.gamma.mme, fit.lnorm.mme, fit.weibull.mme),
+                       legendtext = plot.legend, fitlwd = 1)
+fitdistrplus::cdfcomp(list(fit.gamma.mme, fit.lnorm.mme, fit.weibull.mme),
+                      legendtext = plot.legend, fitlwd = 1, datapch = 10)
+fitdistrplus::ppcomp(list(fit.gamma.mme, fit.lnorm.mme, fit.weibull.mme),
+                     legendtext = plot.legend, fitpch = 20)
+fitdistrplus::qqcomp(list(fit.gamma.mme, fit.lnorm.mme, fit.weibull.mme),
+                     legendtext = plot.legend, fitpch = 20)
+
+# Fitting the data using maximum likelihood.
+
+fit.gamma.mle <- fitdist(claim[claim > 0], "gamma", method = "mle")
+fit.gamma.mle$estimate
+fit.gamma.mle$loglik
+
+fit.lnorm.mle <- fitdist(claim[claim > 0], "lnorm", method = "mle")
+fit.lnorm.mle$estimate
+fit.lnorm.mle$loglik
+
+fit.weibull.mle <- fitdist(claim[claim > 0], "weibull", method = "mle")
+fit.weibull.mle$estimate
+fit.weibull.mle$loglik
+
+summary(fit.gamma.mle)
+summary(fit.lnorm.mle)
+summary(fit.weibull.mle)
+
+plot.legend <- c("gamma MLE", "lnorm MLE", "weibull MLE")
+fitdistrplus::denscomp(list(fit.gamma.mle, fit.lnorm.mle, fit.weibull.mle),
+                       legendtext = plot.legend, fitlwd = 1)
+fitdistrplus::cdfcomp(list(fit.gamma.mle, fit.lnorm.mle, fit.weibull.mle),
+                      legendtext = plot.legend, fitlwd = 1, datapch = 10)
+fitdistrplus::ppcomp(list(fit.gamma.mle, fit.lnorm.mle, fit.weibull.mle),
+                     legendtext = plot.legend, fitpch = 20)
+fitdistrplus::qqcomp(list(fit.gamma.mle, fit.lnorm.mle, fit.weibull.mle),
+                     legendtext = plot.legend, fitpch = 20)
+
+gofstat(list(fit.gamma.mle, fit.lnorm.mle, fit.weibull.mle, fit.gamma.mme, fit.lnorm.mme, fit.weibull.mme),
+        fitnames = c("gamma MLE", "lnorm MLE", "weibull MLE", "gamma MME", "lnorm MME", "weibull MME"))
+claimgof <- gofstat(list(fit.gamma.mle, fit.lnorm.mle, fit.weibull.mle, fit.gamma.mme, fit.lnorm.mme, fit.weibull.mme), fitnames = c("gamma MLE", "lnorm MLE", "weibull MLE", "gamma MME", "lnorm MME", "weibull MME"), chisqbreaks = c(0, 1000, 2000, 3000, 4000, 5000))
+claimgof$chisqpvalue
+claimgof$adtest
+claimgof$kstest
+claimgof$chisqtable
+
+# We will be using Weibull distribution with shape = 2.286708 and scale = 1628.721687 to model claims severity.
+
+weibull.shape = as.numeric(fit.weibull.mle$estimate["shape"])
+weibull.shape
+weibull.scale = as.numeric(fit.weibull.mle$estimate["scale"])
+weibull.scale
+mean(claim[claim > 0]) # empirical mean
+weibull.scale * gamma(1+1/weibull.shape) # theoretical mean
+var(claim[claim > 0]) # empirical variance
+(weibull.scale ^ 2) * (gamma(1 + 2/weibull.shape) - (gamma(1 + 1/ weibull.shape)) ^ 2) # theoretical variance
+
+# Checking fitness looks good!
+  
+# Finding the distribution of the claims frequency:
+  
+claimfreq <- as.data.frame(table(cleaned_data$polind[claim > 0]))
+claimfreq <- rbind(claimfreq, data.frame(Var1 = rep("manual", 593), Freq = rep(0, 593))) # adding 593 polind which had no claim
+plotdist(claimfreq$Freq, hist = TRUE, demp = TRUE, discrete = TRUE)
+descdist(claimfreq$Freq, boot = 1000, discrete = TRUE)
+
+# We will try negative binomial and poisson
+
+fit.nb.mme <- fitdist(claimfreq$Freq, "nbinom", method = "mme")
+fit.nb.mme$estimate
+fit.nb.mme$loglik
+
+fit.pois.mle <- fitdist(claimfreq$Freq, "pois", method = "mle")
+fit.pois.mle$estimate
+fit.pois.mle$loglik
+
+fit.nb.mle <- fitdist(claimfreq$Freq, "nbinom", method = "mle")
+fit.nb.mle$estimate
+fit.nb.mle$loglik
+
+# MLE and MME for Poisson distribution is the same.
+# Since MME for negative binomial is incomplete, we will be comparing MLE for Poisson and Negative Binomial.
+
+plot.legend <- c("poisson MLE", "nb MLE")
+fitdistrplus::denscomp(list(fit.pois.mle, fit.nb.mle),
+                       legendtext = plot.legend, fitlwd = 1)
+fitdistrplus::cdfcomp(list(fit.pois.mle, fit.nb.mle),
+                      legendtext = plot.legend, fitlwd = 1, datapch = 10)
+fitdistrplus::ppcomp(list(fit.pois.mle, fit.nb.mle),
+                     legendtext = plot.legend, fitpch = 20)
+fitdistrplus::qqcomp(list(fit.pois.mle, fit.nb.mle),
+                     legendtext = plot.legend, fitpch = 20)
+
+gofstat(list(fit.pois.mle, fit.nb.mle),
+        fitnames = c("poisson MLE", "nb MLE"))
+claimgof <- gofstat(list(fit.pois.mle, fit.nb.mle), fitnames = c("poisson MLE", "nb MLE"), chisqbreaks = c(2, 4, 6, 8, 10))
+
+# We will use Poisson distribution with lambda = 2.686889 due to lower AIC and BIC scores.
+
+pois.lambda <- as.numeric(fit.pois.mle$estimate)
+pois.lambda # theoretical mean and variance
+mean(claimfreq$Freq) # empirical mean
+var(claimfreq$Freq) # empirical variance
+
+# Good Fitting!
+  
+# Without reinsurance,
+# Profit = Revenue - Total Loss
+
+nopolind <- 9099 # total number of polind
+# Loss = Mean loss per claim * # policies * Expected # claim per policy
+Total_loss_insurer <- weibull.scale * gamma(1+1/weibull.shape) * nopolind * pois.lambda
+Total_loss_insurer
+
+# Reinsurance Conclusions:
+#   Type 1: Profit = Revenue - min(0, 1.5E[Y]) * claim - Total Price_1
+# Where Y is Loss
+# Type 2: Profit = Revenue - min(0, 1.5E[S]) * policy - Total Price_2
+# Where S = Aggregate per Policyholder
+# Assumption: Policyholder can only hold 1 Policy - Disadvantage!
+#   We can cross out Revenue since both cases have the same number.
+
+# Calculating min(0, 1.5E[Y]) - Type 1 Reinsurance
+
+upper_bound1 = 1.5 * weibull.scale * gamma(1+1/weibull.shape)
+
+sweibull <- function(x) {1 - pweibull(x, shape = weibull.shape, scale = weibull.scale)}
+
+minfuncvalue <- integrate(sweibull, 0, upper_bound1)$value
+minfuncvalue
+total_loss_insurer_1 <- minfuncvalue * nopolind * pois.lambda
+total_loss_insurer_1
+
+
+# Calculating min(0, 1.5E[S]) - Type 2 Reinsurance
+# Since per Policyholder Severity ~ Weibull and Frequency ~ Pois, We can model S ~ CompoundPois(lambda * v, Y ~ Weibull) this is per policy
+
+expected_S = pois.lambda * weibull.scale * gamma(1+1/weibull.shape)
+upper_bound2 = 1.5 * expected_S
+
+stp = 1
+final = 7000
+# First, we discretise the proposed Weibull distribution
+weibull.discr.unbia <- discretise(pweibull(x, shape = weibull.shape, scale = weibull.scale), from = 0,
+                                  to = final, step = stp, method = "unbiased", lev = levweibull(x,
+                                                                                                shape = weibull.shape, scale = weibull.scale))
+weibull.discr.unbia.cdf <- cumsum(weibull.discr.unbia)
+curve(pweibull(x, shape = weibull.shape, scale = weibull.scale), from = 0, to = final)
+lines((0:(final/stp)) * stp, weibull.discr.unbia.cdf, type = "s",
+      pch = 20, col = "green")
+
+S.unbia.cdf <- aggregateDist(method = "recursive", model.freq = "poisson",
+                             lambda = pois.lambda, model.sev = weibull.discr.unbia, x.scale = stp,
+                             maxit = 100000000)
+plot(S.unbia.cdf, pch = 20, col = "black", cex = 0.5)
+
+S.unbia.sdf <- function(x){1 - S.unbia.cdf(x)}
+
+minfuncvalue2 <- integrate(S.unbia.sdf, 0, upper_bound2)$value
+minfuncvalue2
+total_loss_insurer_2 <- minfuncvalue2 * nopolind
+total_loss_insurer_2
+
+
+# In conclusion, insurer loss under reinsurance 1 is more than when under reinsurance 2. Without reinsurance, insurer loss is the greatest.
